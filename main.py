@@ -138,12 +138,12 @@ async def help_command(ctx):
 if __name__ == '__main__':
     token = os.getenv('TOKEN')
     if not token:
-        print("Error: DISCORD_BOT_TOKEN not found in environment variables!")
+        print("Error: TOKEN not found in environment variables!")
         print("Please add your Discord bot token to the Secrets tab.")
         exit(1)
     
     try:
-        bot.run(token)
+        bot.run(TOKEN)
     except discord.LoginFailure:
         print("Error: Invalid Discord bot token!")
     except Exception as e:

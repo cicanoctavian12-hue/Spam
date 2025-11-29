@@ -77,7 +77,7 @@ client.on("interactionCreate", async (interaction) => {
       )
       .addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
-          `⏱️ **Last Updated:** <t:${now}:R>\n\n` +
+          `⏱️ **Last Updated:** <t:${now}:D>\n\n` +
           `🔹 **Stumble Guys build version:** ${sg}\n\n` +
           `🔸 **Stumble Hour version:** ${sh}`
         )

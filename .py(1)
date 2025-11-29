@@ -1,0 +1,221 @@
+import discord
+from discord.ext import commands
+import json, os
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.guilds = True
+intents.bans = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# ----------------------------------------
+# LOAD / CREATE JSON
+# ----------------------------------------
+
+if not os.path.exists("logs.json"):
+    with open("logs.json", "w") as f:
+        json.dump({}, f, indent=4)
+
+with open("logs.json", "r") as f:
+    log_channels = json.load(f)
+
+def save_logs():
+    with open("logs.json", "w") as f:
+        json.dump(log_channels, f, indent=4)
+
+# ----------------------------------------
+# !logs COMMAND
+# ----------------------------------------
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def logs(ctx, channel: discord.TextChannel):
+    guild_id = str(ctx.guild.id)
+    log_channels[guild_id] = channel.id
+    save_logs()
+
+    embed = discord.Embed(
+        title="Logs Channel Set",
+        description=f"Logs will now be sent to {channel.mention}",
+        color=0x2b2d31
+    )
+    await ctx.send(embed=embed)
+
+def get_log_channel(guild):
+    gid = str(guild.id)
+    if gid in log_channels:
+        return bot.get_channel(log_channels[gid])
+    return None
+
+# ----------------------------------------
+# MESSAGE DELETE
+# ----------------------------------------
+
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot:
+        return
+    
+    channel = get_log_channel(message.guild)
+    if channel is None:
+        return
+
+    embed = discord.Embed(title="Message Deleted", color=0xFF4444)
+    embed.add_field(name="User:", value=message.author.mention)
+    embed.add_field(name="Channel:", value=message.channel.mention)
+    embed.add_field(name="Content:", value=message.content or "None", inline=False)
+
+    await channel.send(embed=embed)
+
+# ----------------------------------------
+# MESSAGE EDIT
+# ----------------------------------------
+
+@bot.event
+async def on_message_edit(before, after):
+    if before.author.bot:
+        return
+    
+    channel = get_log_channel(before.guild)
+    if channel is None:
+        return
+
+    if before.content == after.content:
+        return
+
+    embed = discord.Embed(title="Message Edited", color=0xFFCC00)
+    embed.add_field(name="User:", value=before.author.mention)
+    embed.add_field(name="Channel:", value=before.channel.mention)
+    embed.add_field(name="Before:", value=before.content or "None", inline=False)
+    embed.add_field(name="After:", value=after.content or "None", inline=False)
+
+    await channel.send(embed=embed)
+
+# ----------------------------------------
+# BAN / UNBAN
+# ----------------------------------------
+
+@bot.event
+async def on_member_ban(guild, user):
+    channel = get_log_channel(guild)
+    if channel is None:
+        return
+
+    audit = await guild.audit_logs(limit=1, action=discord.AuditLogAction.ban).flatten()
+    executor = audit[0].user if audit else "Unknown"
+
+    embed = discord.Embed(title="User Banned", color=0x990000)
+    embed.add_field(name="User:", value=user.mention)
+    embed.add_field(name="Executor:", value=executor.mention if isinstance(executor, discord.Member) else "Unknown")
+    embed.add_field(name="Ban Duration:", value="Permanent")
+
+    await channel.send(embed=embed)
+
+@bot.event
+async def on_member_unban(guild, user):
+    channel = get_log_channel(guild)
+    if channel is None:
+        return
+
+    embed = discord.Embed(title="User Unbanned", color=0x009933)
+    embed.add_field(name="User:", value=user.mention)
+
+    await channel.send(embed=embed)
+
+# ----------------------------------------
+# THE BIG ONE:
+# NICKNAME CHANGE  
+# ROLE ADDED  
+# ROLE REMOVED  
+# MUTE / UNMUTE  
+# ALL IN ONE FUNCTION  
+# ----------------------------------------
+
+MUTE_ROLE_NAME = "Muted"
+
+@bot.event
+async def on_member_update(before, after):
+    channel = get_log_channel(before.guild)
+    if channel is None:
+        return
+
+    # Get executor from audit log
+    async def get_executor(action):
+        audit = await before.guild.audit_logs(limit=1, action=action).flatten()
+        return audit[0].user if audit else "Unknown"
+
+    # ---------------------------
+    # NICKNAME CHANGE
+    # ---------------------------
+    if before.nick != after.nick:
+        executor = await get_executor(discord.AuditLogAction.member_update)
+
+        embed = discord.Embed(title="Nickname Changed", color=0x7289DA)
+        embed.add_field(name="User:", value=after.mention)
+        embed.add_field(name="Executor:", value=executor.mention if isinstance(executor, discord.Member) else "Unknown")
+        embed.add_field(name="Before:", value=before.nick or before.name, inline=False)
+        embed.add_field(name="After:", value=after.nick or after.name, inline=False)
+
+        await channel.send(embed=embed)
+
+    # ---------------------------
+    # ROLE ADDED
+    # ---------------------------
+    added = [r for r in after.roles if r not in before.roles]
+    if added:
+        role = added[0]
+        executor = await get_executor(discord.AuditLogAction.member_role_update)
+
+        embed = discord.Embed(title="Role Add", color=0x00AAFF)
+        embed.add_field(name="User:", value=after.mention)
+        embed.add_field(name="Executor:", value=executor.mention if isinstance(executor, discord.Member) else "Unknown")
+        embed.add_field(name="Role Added:", value=role.mention)
+
+        await channel.send(embed=embed)
+
+    # ---------------------------
+    # ROLE REMOVED
+    # ---------------------------
+    removed = [r for r in before.roles if r not in after.roles]
+    if removed:
+        role = removed[0]
+        executor = await get_executor(discord.AuditLogAction.member_role_update)
+
+        embed = discord.Embed(title="Role Removed", color=0xFF3333)
+        embed.add_field(name="User:", value=after.mention)
+        embed.add_field(name="Executor:", value=executor.mention if isinstance(executor, discord.Member) else "Unknown")
+        embed.add_field(name="Role Removed:", value=role.mention)
+
+        await channel.send(embed=embed)
+
+    # ---------------------------
+    # MUTE / UNMUTE (role-based)
+    # ---------------------------
+
+    mute_role = discord.utils.get(before.guild.roles, name=MUTE_ROLE_NAME)
+    if mute_role:
+
+        # MUTED
+        if mute_role not in before.roles and mute_role in after.roles:
+            executor = await get_executor(discord.AuditLogAction.member_role_update)
+
+            embed = discord.Embed(title="User Muted", color=0xFF6600)
+            embed.add_field(name="User:", value=after.mention)
+            embed.add_field(name="Executor:", value=executor.mention if isinstance(executor, discord.Member) else "Unknown")
+            embed.add_field(name="Mute Duration:", value="Unknown")
+
+            await channel.send(embed=embed)
+
+        # UNMUTED
+        if mute_role in before.roles and mute_role not in after.roles:
+            embed = discord.Embed(title="User Unmuted", color=0x33CC33)
+            embed.add_field(name="User:", value=after.mention)
+            await channel.send(embed=embed)
+
+# ----------------------------------------
+# RUN BOT
+# ----------------------------------------
+
+bot.run("YOUR_TOKEN_HERE")

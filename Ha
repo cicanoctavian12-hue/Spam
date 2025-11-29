@@ -1,0 +1,11 @@
+from discord.ui import View, Button
+
+# Creează containerul
+view = View()
+
+# Adaugă componente în container
+view.add_item(Button(label="Apasă-mă"))
+view.add_item(Button(label="Alt buton"))
+
+# Trimite mesaj cu embed + container
+await ctx.send(embed=embed, view=view)
